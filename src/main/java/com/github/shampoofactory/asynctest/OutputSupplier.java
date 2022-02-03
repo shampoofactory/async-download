@@ -5,6 +5,12 @@ import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
+/**
+ * Output supplier.
+ * 
+ * @author vin
+ * @param <T>
+ */
 @FunctionalInterface
 public interface OutputSupplier<T> {
 

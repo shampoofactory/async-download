@@ -2,15 +2,20 @@ package com.github.shampoofactory.asynctest;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 
 /**
  * Write a sequence of bytes from the given buffer. Thread safe.
  */
 public interface WriteBytes extends Closeable {
 
+    /**
+     * Write all the specified bytes.
+     * 
+     * @param src
+     * @param position
+     * @throws IOException
+     */
     default void writeAll(ByteBuffer src, long position) throws IOException {
         boolean retry = false;
         while (src.hasRemaining()) {
@@ -28,5 +33,14 @@ public interface WriteBytes extends Closeable {
         }
     }
 
+    /**
+     * Write specified bytes returning the number of bytes written, which may
+     * be zero.
+     * 
+     * @param src
+     * @param position
+     * @return
+     * @throws IOException
+     */
     int write(ByteBuffer src, long position) throws IOException;
 }

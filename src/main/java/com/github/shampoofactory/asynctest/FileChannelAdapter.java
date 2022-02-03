@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
-public class FileChannelAdapter implements Output<FileChannel> {
+class FileChannelAdapter implements Output<FileChannel> {
 
     private final FileChannel channel;
 

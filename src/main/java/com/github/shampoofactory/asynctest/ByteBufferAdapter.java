@@ -3,9 +3,8 @@ package com.github.shampoofactory.asynctest;
 import java.io.IOException;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 
-public class ByteBufferAdapter implements Output<ByteBuffer> {
+class ByteBufferAdapter implements Output<ByteBuffer> {
 
     private final ByteBuffer buffer;
     private final Object lock;

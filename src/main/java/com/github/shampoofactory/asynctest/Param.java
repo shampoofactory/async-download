@@ -1,5 +1,10 @@
 package com.github.shampoofactory.asynctest;
 
+/**
+ * Immutable parameters.
+ * 
+ * @author vin
+ */
 public final class Param {
 
     public static Builder builder() {

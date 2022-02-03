@@ -3,6 +3,11 @@ package com.github.shampoofactory.asynctest;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+/**
+ * 
+ * @author vin
+ * @param <T>
+ */
 public final class OutputAdapter<T> implements Output<T> {
 
     private final T t;

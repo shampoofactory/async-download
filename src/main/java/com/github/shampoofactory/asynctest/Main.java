@@ -10,6 +10,10 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.hc.client5.http.async.HttpAsyncClient;
 
+/**
+ *
+ * @author vin
+ */
 public class Main {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
@@ -22,7 +26,7 @@ public class Main {
         }
         try (CloseableHttpAsyncClient client = Clients.create()) {
             download(client, args[0], args[1]);
-        };
+        }
     }
 
     static void download(HttpAsyncClient client, String uri, String fileName)

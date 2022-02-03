@@ -18,6 +18,11 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
+/**
+ *
+ * @author vin
+ * @param <T>
+ */
 public final class Job<T> {
 
     public static <T> T execute(
