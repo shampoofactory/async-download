@@ -1,3 +1,6 @@
+![MIT/Apache 2.0 Licensed](https://img.shields.io/badge/license-MIT-blue)
+[![Java](https://github.com/shampoofactory/async-download/actions/workflows/maven.yml/badge.svg)](https://github.com/shampoofactory/async-download/actions)
+
 # async-download
 Java Apache HttpAsyncClient toy downloader
 
