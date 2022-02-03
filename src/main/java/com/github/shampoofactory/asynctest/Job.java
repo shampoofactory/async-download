@@ -30,7 +30,7 @@ public final class Job<T> {
             String uri,
             HttpAsyncClient client,
             OutputSupplier<T> supplier) throws ExecutionException, InterruptedException, IOException {
-        Job<T> job = new Job(param, uri, client, supplier);
+        Job<T> job = new Job<>(param, uri, client, supplier);
         return job.execute();
     }
 
