@@ -24,15 +24,16 @@ public class Main {
             System.err.println("usage: AsyncDownload URL FILE");
             System.exit(1);
         }
-        try (CloseableHttpAsyncClient client = Clients.create()) {
-            download(client, args[0], args[1]);
+        Param param = Param.builder().build();
+        try (CloseableHttpAsyncClient client = Clients.create(param.maxConcurrent())) {
+            download(client, param, args[0], args[1]);
         }
     }
 
-    static void download(HttpAsyncClient client, String uri, String fileName)
+    static void download(HttpAsyncClient client, Param param, String uri, String fileName)
             throws ExecutionException, InterruptedException, IOException {
         RandomAccessFile file = new RandomAccessFile(fileName, "rw");
         OutputSupplier channelSupplier = OutputSupplier.withFileChannel(file.getChannel());
-        Job.execute(uri, client, channelSupplier);
+        Job.execute(param, uri, client, channelSupplier);
     }
 }

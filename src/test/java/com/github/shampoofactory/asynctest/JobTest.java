@@ -19,13 +19,15 @@ public class JobTest {
     private static final Logger log = LoggerFactory.getLogger(JobTest.class);
 
     static CloseableHttpAsyncClient client;
+    static Param param;
 
     public JobTest() {
     }
 
     @BeforeAll
     public static void setUpClass() {
-        client = Clients.create();
+        param = Param.builder().build();
+        client = Clients.create(param.maxConcurrent());
     }
 
     @AfterAll
@@ -43,7 +45,6 @@ public class JobTest {
         byte[] bytes = string.getBytes(StandardCharsets.UTF_8);
         String encoded = Base64.getEncoder().encodeToString(bytes);
         String uri = "https://httpbin.org/base64/" + encoded;
-        Param param = Param.builder().build();
         OutputSupplier<ByteBuffer> channelSupplier = OutputSupplier.withByteBuffer();
         ByteBuffer buffer = Job.execute(param, uri, client, channelSupplier);
         ByteBuffer expected = ByteBuffer.wrap(bytes);
@@ -55,7 +56,6 @@ public class JobTest {
         // N.B. Website only supplies MD5.
         String uri = "http://ipv4.download.thinkbroadband.com/10MB.zip";
         String md5 = "3aa55f03c298b83cd7708e90d289afbd";
-        Param param = Param.builder().build();
         OutputSupplier<ByteBuffer> channelSupplier = OutputSupplier.withByteBuffer();
         ByteBuffer buffer = Job.execute(param, uri, client, channelSupplier);
         byte[] hash = Hash.get(buffer, "MD5");

@@ -14,8 +14,8 @@ import org.apache.hc.core5.reactor.ssl.TlsDetails;
 import org.apache.hc.core5.util.Timeout;
 
 final class Clients {
-
-    static CloseableHttpAsyncClient create() {
+    
+    static CloseableHttpAsyncClient create(int nConn) {
         TlsStrategy tlsStrategy = ClientTlsStrategyBuilder.create()
                 .useSystemProperties()
                 // IMPORTANT uncomment the following method when running Java 9 or older
@@ -33,6 +33,8 @@ final class Clients {
                 .build();
         PoolingAsyncClientConnectionManager cm = PoolingAsyncClientConnectionManagerBuilder.create()
                 .setTlsStrategy(tlsStrategy)
+                .setMaxConnPerRoute(nConn)
+                .setMaxConnTotal(nConn * 2)
                 .build();
         IOReactorConfig ioReactorConfig = IOReactorConfig.custom()
                 .setSoTimeout(Timeout.ofSeconds(30))
@@ -46,7 +48,7 @@ final class Clients {
         client.start();
         return client;
     }
-
+    
     private Clients() {
     }
 }
