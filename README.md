@@ -1,7 +1,7 @@
 ![MIT/Apache 2.0 Licensed](https://img.shields.io/badge/license-MIT-blue)
 [![Java](https://github.com/shampoofactory/async-download/actions/workflows/maven.yml/badge.svg)](https://github.com/shampoofactory/async-download/actions)
 
-# async-download
+# async-download-java
 Java Apache HttpAsyncClient toy downloader
 
 An exercise in creating a concurrent download tool based on Apache's HttpAsyncClient.
