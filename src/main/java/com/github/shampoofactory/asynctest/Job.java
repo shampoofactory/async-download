@@ -12,11 +12,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.hc.core5.concurrent.FutureCallback;
 
 /**
  *
@@ -47,6 +49,10 @@ public final class Job<T> {
     private final String uri;
     private final HttpAsyncClient client;
     private final OutputSupplier<T> supplier;
+    private final ConcurrentHashMap<Integer, Future<Void>> map;
+    private final AtomicReference<ExecutionException> error;
+    private CountDownLatch latch;
+    private Output<T> channel;
 
     private Job(
             Param param,
@@ -57,6 +63,8 @@ public final class Job<T> {
         this.uri = uri;
         this.client = client;
         this.supplier = supplier;
+        this.map = new ConcurrentHashMap<>(param.maxConcurrent());
+        this.error = new AtomicReference<>();
     }
 
     T execute() throws ExecutionException, InterruptedException, IOException {
@@ -65,25 +73,21 @@ public final class Job<T> {
         log.info("CONTENT-LENGTH: {}", contentLength);
         boolean acceptRangeBytes = Headers.acceptRangeBytes(head);
         log.info("ACCEPT-RANGES bytes: {}", acceptRangeBytes);
-        Output<T> channel = supplier.output(contentLength);
+        channel = supplier.output(contentLength);
         try {
-            final List<Future<Void>> futures;
             if (param.maxConcurrent() > 1 && acceptRangeBytes && contentLength >= param.minLen()) {
-                futures = queuePart(channel, contentLength);
+                queuePart(channel, contentLength);
             } else {
-                futures = queueGet(channel, contentLength);
+                queueGet(channel, contentLength);
             }
-            try {
-                for (Future<Void> future : futures) {
-                    future.get();
-                }
-            } finally {
-                for (Future<Void> future : futures) {
-                    future.cancel(true);
-                }
-            }
+            latch.await();
         } finally {
+            map.forEach((id, future) -> future.cancel(true));
             channel.close();
+        }
+        ExecutionException ex = error.get();
+        if (ex != null) {
+            throw ex;
         }
         return channel.into();
     }
@@ -98,78 +102,117 @@ public final class Job<T> {
                 .getHead();
     }
 
-    List<Future<Void>> queueGet(WriteBytes channel, long len)
-            throws ExecutionException, InterruptedException, IOException {
+    void queueGet(WriteBytes channel, long len) {
+        latch = new CountDownLatch(1);
         if (len == 0) {
-            return Collections.emptyList();
+            latch.countDown();
+            return;
         }
-        ArrayList<Future<Void>> futures = new ArrayList<>(1);
         Consumer consumer = Consumer.createGet(channel, 0, len);
         log.info("queue get: 0-{}", len);
         SimpleHttpRequest request = SimpleRequestBuilder.get(uri).build();
         SimpleRequestProducer producer = SimpleRequestProducer.create(request);
         HttpClientContext context = HttpClientContext.create();
-        Future<Void> future = client.execute(producer, consumer, null, context, null);
-        futures.add(future);
-        return futures;
+        Future<Void> future = client.execute(producer, consumer, null, context,
+                new FutureCallback<Void>() {
+            @Override
+            public void completed(Void result) {
+                log.info("get: completed: {}", consumer.position());
+                latch.countDown();
+            }
+
+            @Override
+            public void failed(Exception ex) {
+                log.warn("get: failed: {}", ex);
+                abort(ex);
+            }
+
+            @Override
+            public void cancelled() {
+                log.debug("get: interrupted");
+                latch.countDown();
+            }
+        });
+        map.put(0, future);
     }
 
-    List<Future<Void>> queuePart(WriteBytes channel, long len)
-            throws ExecutionException, InterruptedException, IOException {
-        if (len == 0) {
-            return Collections.emptyList();
-        }
-        Consumer[] consumers = queuePartConsumers(channel, len);
-        for (Consumer consumer : consumers) {
-            if (consumer != null) {
-                log.info("queue part: {}-{}", consumer.mark(), consumer.mark() + consumer.len());
-            }
-        }
-        return queuePartFutures(consumers);
+    void queuePart(WriteBytes channel, long len) {
+        List<Split> list = param.split(len);
+        log.debug("split list: {}", list);
+        latch = new CountDownLatch(list.size());
+        list.forEach(split -> queuePartFuture(split, param.retryCount()));
     }
 
-    Consumer[] queuePartConsumers(WriteBytes channel, long len) throws IOException {
-        int nThreads = param.maxConcurrent();
-        int chunkLen = param.chunkLen();
-        long nChunks = len / chunkLen;
-        long trim = len - nChunks * chunkLen;
-        long div = nChunks / nThreads;
-        long mod = nChunks % nThreads;
-        Consumer[] consumers = new Consumer[param.maxConcurrent()];
-        long pos = 0;
-        for (int i = 0; i < nThreads; i++) {
-            long partLen = div * chunkLen;
-            if (mod != 0) {
-                partLen += chunkLen;
-                mod -= 1;
-            }
-            if (i == nThreads - 1) {
-                partLen += trim;
-            }
-            if (partLen == 0) {
-                continue;
-            }
-            consumers[i] = Consumer.createPart(channel, pos, partLen);
-            pos += partLen;
+    synchronized void queuePartFuture(Split split, int retry) {
+        if (split.length() == 0) {
+            latch.countDown();
+            return;
         }
-        return consumers;
+        final int id = split.id();
+        final long head = split.head();
+        final long tail;
+        if (split.length() > param.maxLen()) {
+            tail = head + param.maxLen();
+        } else {
+            tail = split.tail();
+        }
+        log.info("queue part: {} to: {}", split, tail);
+        SimpleHttpRequest request = SimpleRequestBuilder.get(uri)
+                .addHeader(HttpHeaders.RANGE, "bytes=" + head + "-" + (tail - 1))
+                .build();
+        SimpleRequestProducer producer = SimpleRequestProducer.create(request);
+        Consumer consumer = Consumer.createPart(channel, head, tail);
+        HttpClientContext context = HttpClientContext.create();
+        Future<Void> future = client.execute(producer, consumer, null, context,
+                new FutureCallback<Void>() {
+            @Override
+            public void completed(Void result) {
+                if (tail == split.tail()) {
+                    log.info("{}: completed: {}-{}", id, head, tail);
+                    latch.countDown();
+                    return;
+                }
+                log.debug("{}: continue: {}-{}", id, head, tail);
+                queuePartFuture(split.cut(tail), retry - 1);
+            }
+
+            @Override
+            public void failed(Exception ex) {
+                if (!(ex instanceof IOException)) {
+                    log.warn("{}: failed with error: {}", id, ex);
+                    abort(ex);
+                    return;
+                }
+                if (retry == 0) {
+                    log.warn("{}: failed: {}", id, ex.toString());
+                    abort(ex);
+                    return;
+                }
+                try {
+                    Thread.sleep(param.retryDelay());
+                } catch (InterruptedException ex1) {
+                    log.warn("{}: failed interruped: {}", id, ex.toString());
+                    latch.countDown();
+                    return;
+                }
+                log.warn("{}: failed will retry: {}", id, ex.toString());
+                queuePartFuture(split.cut(consumer.position()), retry - 1);
+            }
+
+            @Override
+            public void cancelled() {
+                log.debug("{}: interrupted", id);
+                latch.countDown();
+            }
+        });
+        map.put(id, future);
     }
 
-    List<Future<Void>> queuePartFutures(Consumer[] consumers)
-            throws ExecutionException, InterruptedException, IOException {
-        ArrayList<Future<Void>> futures = new ArrayList<>(consumers.length);
-        for (Consumer consumer : consumers) {
-            long head = consumer.mark();
-            long tail = head + consumer.len() - 1;
-            SimpleHttpRequest request = SimpleRequestBuilder.get(uri)
-                    .addHeader(HttpHeaders.RANGE, "bytes=" + head + "-" + tail)
-                    .build();
-            SimpleRequestProducer producer = SimpleRequestProducer.create(request);
-            HttpClientContext context = HttpClientContext.create();
-            Future<Void> future = client.execute(producer, consumer, null, context, null);
-            futures.add(future);
+    void abort(Throwable cause) {
+        error.set(new ExecutionException(cause));
+        for (long i = 0, m = latch.getCount(); i < m; i++) {
+            latch.countDown();
         }
-        return futures;
     }
 
     @Override
@@ -179,6 +222,9 @@ public final class Job<T> {
                 + ", uri=" + uri
                 + ", client=" + client
                 + ", supplier=" + supplier
+                + ", map=" + map
+                + ", latch=" + latch
+                + ", channel=" + channel
                 + '}';
     }
 }

@@ -26,7 +26,7 @@ public class JobTest {
 
     @BeforeAll
     public static void setUpClass() {
-        param = Param.builder().build();
+        param = Param.builder().setMaxChunks(8).build();
         client = Clients.create(param.maxConcurrent());
     }
 

@@ -5,60 +5,58 @@ import org.apache.hc.core5.http.*;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class Consumer extends AbstractBinResponseConsumer<Void> {
 
-    public static Consumer createGet(WriteBytes channel, long pos, long len) throws IOException {
-        if (pos < 0) {
+    public static Consumer createGet(WriteBytes channel, long head, long tail) {
+        if (head < 0) {
             throw new IllegalArgumentException();
         }
-        final long cap;
-        if (len < -1) {
+        if (tail == -1) {
+            tail = Long.MAX_VALUE;
+        } else if (tail <= head || tail == Long.MAX_VALUE) {
             throw new IllegalArgumentException();
-        } else if (len == -1) {
-            cap = Long.MAX_VALUE;
-        } else {
-            cap = len;
         }
-        return new Consumer(channel, 200, pos, len, pos, cap);
+        log.debug("createGet: head: {} tail: {}", head, tail);
+        return new Consumer(channel, 200, head, tail);
     }
 
-    public static Consumer createPart(WriteBytes channel, long pos, long len) throws IOException {
-        if (pos < 0) {
+    public static Consumer createPart(WriteBytes channel, long head, long tail) {
+        if (head < 0) {
             throw new IllegalArgumentException();
         }
-        if (len < 0) {
+        if (tail <= head) {
             throw new IllegalArgumentException();
         }
-        return new Consumer(channel, 206, pos, len, pos, len);
+        log.debug("createPart: head: {} tail: {}", head, tail);
+        return new Consumer(channel, 206, head, tail);
     }
+
+    private static final Logger log = LoggerFactory.getLogger(Consumer.class);
 
     private final WriteBytes channel;
     private final int statusCode;
-    private final long mark;
-    private final long len;
-    private long pos;
-    private long cap;
+    private final long head;
+    private final long tail; // -1 if tail unknown
+    private long position;
 
-    private Consumer(WriteBytes channel, int statusCode, long mark, long len, long pos, long cap) {
-        this.statusCode = statusCode;
+    private Consumer(WriteBytes channel, int statusCode, long head, long tail) {
         this.channel = channel;
-        this.mark = mark;
-        this.len = len;
-        this.pos = pos;
-        this.cap = cap;
+        this.statusCode = statusCode;
+        this.head = head;
+        this.tail = tail;
+        this.position = head;
     }
 
-    public long mark() {
-        return mark;
-    }
-
-    public long len() {
-        return len;
+    public long position() {
+        return position;
     }
 
     @Override
     protected void start(HttpResponse response, ContentType contentType) throws HttpException, IOException {
+        log.debug("start: {} {}", response, contentType);
         int code = response.getCode();
         if (code != statusCode) {
             throw new HttpException("server returned unexpected status code: " + code);
@@ -70,32 +68,28 @@ class Consumer extends AbstractBinResponseConsumer<Void> {
 
     @Override
     protected Void buildResult() {
+        log.debug("buildResult");
         return null;
     }
 
     @Override
     protected int capacityIncrement() {
-        if (cap > Integer.MAX_VALUE) {
-            cap -= Integer.MAX_VALUE;
-            return Integer.MAX_VALUE;
-        } else {
-            int oldCap = (int) cap;
-            cap = 0;
-            return oldCap;
-        }
+        log.debug("capacityIncrement");
+        return Integer.MAX_VALUE;
     }
 
     @Override
     protected void data(ByteBuffer src, boolean endOfStream) throws IOException {
-        long newPos = pos + src.remaining();
-        if (len != -1 && newPos - mark > len) {
+        log.debug("data: length: {} eos: {} position: {}", src.remaining(), endOfStream, position);
+        long newPosition = position + src.remaining();
+        if (newPosition > tail) {
             throw new IOException("server returned too much data");
         }
-        if (len != - 1 && endOfStream && newPos - mark != len) {
+        if (endOfStream && tail != Long.MAX_VALUE && newPosition < tail) {
             throw new IOException("server returned insufficient data");
         }
-        channel.writeAll(src, pos);
-        pos = newPos;
+        channel.writeAll(src, position);
+        position = newPosition;
 
     }
 
@@ -108,10 +102,9 @@ class Consumer extends AbstractBinResponseConsumer<Void> {
         return "Consumer{"
                 + "channel=" + channel
                 + ", statusCode=" + statusCode
-                + ", mark=" + mark
-                + ", len=" + len
-                + ", pos=" + pos
-                + ", cap=" + cap
+                + ", head=" + head
+                + ", tail=" + tail
+                + ", position=" + position
                 + '}';
     }
 }
